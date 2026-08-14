@@ -1,0 +1,12 @@
+# NEVER commit real API keys
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# OS junk
+.DS_Store
+Thumbs.db

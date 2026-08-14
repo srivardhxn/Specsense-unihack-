@@ -1,0 +1,16 @@
+SAMPLE REFERENCE FILE - replace with your hackathon's actual provided dataset.
+
+This file demonstrates the RAG layer: any .txt, .csv, .pdf, .md, or .json
+file dropped into this /datasets folder gets automatically indexed on
+server startup, and product lookups will check here BEFORE going to
+live web search.
+
+Example entry:
+Part Number: 4M-1234-B
+Brand: Parker
+Category: Hydraulic Fitting
+Dimensions: 12mm x 45mm
+Material: Stainless Steel 316
+Weight: 85g
+Certifications: ISO 9001, RoHS Compliant
+Description: A high-pressure quick-connect hydraulic fitting rated for industrial fluid power systems.
