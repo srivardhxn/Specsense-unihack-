@@ -179,4 +179,7 @@ def export_csv():
 # deployed, there's exactly ONE public link to share (e.g. your Render
 # URL) that opens the working UI directly -- no separate frontend host,
 # no CORS headaches, no "which URL do I give judges" confusion.
-app.mount("/", StaticFiles(directory="../frontend", html=True), name="frontend")
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+frontend_dir = os.path.join(current_dir, "..", "frontend")
+app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
