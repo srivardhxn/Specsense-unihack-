@@ -34,8 +34,12 @@ EXCLUDED_DOMAINS = [
 ]
 
 
-def _is_excluded_source(url: str) -> bool:
+def _is_excluded_source(url: str, brand: str) -> bool:
     url_lower = url.lower()
+    if brand and brand.lower() == "siemens":
+        # For Siemens, bypass exclusions for datasheets/catalogs since their official site blocks scrapers
+        marketplaces = ["amazon.", "ebay.", "walmart.", "aliexpress.", "alibaba."]
+        return any(domain in url_lower for domain in marketplaces)
     return any(domain in url_lower for domain in EXCLUDED_DOMAINS)
 
 
@@ -102,7 +106,7 @@ async def _web_search(product: ProductInput, max_results: int) -> list[SourceHit
     queries = [q for q in queries if q]
 
     for i, query in enumerate(queries):
-        results = await _try_search(query, max_results)
+        results = await _try_search(query, max_results, brand_clean)
         if results:
             if i > 0:
                 print(f"[discover] first query found nothing, broader query #{i+1} succeeded: '{query}'")
@@ -112,7 +116,7 @@ async def _web_search(product: ProductInput, max_results: int) -> list[SourceHit
     return []
 
 
-async def _try_search(query: str, max_results: int) -> list[SourceHit]:
+async def _try_search(query: str, max_results: int, brand: str) -> list[SourceHit]:
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.get(
@@ -128,7 +132,7 @@ async def _try_search(query: str, max_results: int) -> list[SourceHit]:
     results = []
     for item in data.get("organic_results", [])[:max_results * 2]:  # over-fetch since some get filtered out
         url = item.get("link", "")
-        if _is_excluded_source(url):
+        if _is_excluded_source(url, brand):
             continue
         results.append(
             SourceHit(

@@ -29,7 +29,7 @@ async def extract_text(source: SourceHit) -> SourceHit:
 
     try:
         async with httpx.AsyncClient(
-            timeout=8.0, follow_redirects=True,
+            timeout=20.0, follow_redirects=True,
             headers={"User-Agent": "Mozilla/5.0 (SpecSense hackathon bot)"}
         ) as client:
             resp = await client.get(source.url)

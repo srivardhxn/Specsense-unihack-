@@ -111,7 +111,7 @@ def _call_gemini(user_prompt: str) -> dict:
     response = model.generate_content(
         user_prompt,
         generation_config={"temperature": 0, "max_output_tokens": 6144, "response_mime_type": "application/json"},
-        request_options={"timeout": 15.0}
+        request_options={"timeout": 40.0}
     )
     raw = response.text.strip().replace("```json", "").replace("```", "").strip()
     return _parse_json_loosely(raw)
@@ -131,7 +131,7 @@ def _call_groq(user_prompt: str) -> dict:
         temperature=0,
         max_tokens=6144,
         response_format={"type": "json_object"},
-        timeout=15.0
+        timeout=40.0
     )
     raw = response.choices[0].message.content.strip()
     return _parse_json_loosely(raw)
