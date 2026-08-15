@@ -30,7 +30,7 @@ groq_keys = [k.strip() for k in os.getenv("GROQ_API_KEY", "").split(",") if k.st
 
 gemini_key_idx = 0
 groq_key_idx = 0
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "qwen/qwen3.6-27b"
 
 MAX_ATTRIBUTES = 50  # matches the real delivery format's ATTRIBUTE_* 1-50 slots
 
@@ -125,13 +125,20 @@ def _call_groq(user_prompt: str) -> dict:
     current_key = groq_keys[groq_key_idx % len(groq_keys)]
     client = Groq(api_key=current_key)
     
+    extra_body = {}
+    if "qwen" in GROQ_MODEL.lower():
+        extra_body["reasoning_effort"] = "none"
+    elif "gpt-oss" in GROQ_MODEL.lower():
+        extra_body["reasoning_format"] = "hidden"
+
     response = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[{"role": "user", "content": user_prompt}],
         temperature=0,
-        max_tokens=6144,
+        max_tokens=2000,
         response_format={"type": "json_object"},
-        timeout=40.0
+        timeout=40.0,
+        extra_body=extra_body
     )
     raw = response.choices[0].message.content.strip()
     return _parse_json_loosely(raw)
@@ -182,7 +189,7 @@ def _call_llm_with_fallback(user_prompt: str, max_attempts: int = 2) -> dict:
     if groq_keys:
         for attempt in range(max_attempts):
             try:
-                print(f"[structure] Falling back to Groq (Llama 3.3) using key index {groq_key_idx % len(groq_keys)}...")
+                print(f"[structure] Falling back to Groq (Qwen 3.6) using key index {groq_key_idx % len(groq_keys)}...")
                 res = _call_groq(user_prompt)
                 groq_key_idx += 1
                 return res
@@ -202,7 +209,7 @@ def _extract_all_sources(product: ProductInput, sources: list[SourceHit]) -> dic
 
     source_blocks = []
     for i, s in enumerate(sources):
-        text = (s.raw_text or "")[:6000]
+        text = (s.raw_text or "")[:5000]
         source_blocks.append(f"--- SOURCE {i} ({s.origin}): {s.url} ---\n{text}")
     combined = "\n\n".join(source_blocks)
 
