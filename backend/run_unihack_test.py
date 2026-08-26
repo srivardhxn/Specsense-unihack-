@@ -36,9 +36,9 @@ async def run_pipeline_for_product(part_number: str, brand: str, short_desc: str
         ext = await extract_text(s)
         if ext.raw_text:
             print(f"    * Extracted {len(ext.raw_text)} chars from {ext.url}")
-            extracted_sources.append(ext)
         else:
             print(f"    * Extraction failed/empty for {ext.url}")
+        extracted_sources.append(ext)
             
     # 3. Structure & Score & Vocabulary Validation
     result = await structure_product(product, extracted_sources)

@@ -244,7 +244,7 @@ def _normalize_label(label: str) -> str:
 
 
 async def structure_product(product: ProductInput, sources: list[SourceHit]) -> StructuredProduct:
-    usable_sources = [s for s in sources if s.raw_text]
+    usable_sources = [s for s in sources if s.raw_text or s.snippet]
     parsed = await asyncio.to_thread(_extract_all_sources, product, usable_sources)
     per_source = parsed.get("sources", [])
 
