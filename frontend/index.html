@@ -728,6 +728,19 @@
       return `<span class="badge low" data-tip="No reliable source confirmed this value. Shown honestly as unknown rather than guessed.">LOW ${(conf * 100).toFixed(0)}%</span>`;
     }
 
+    function formatSourceUrl(url) {
+      if (!url) return "";
+      if (url.startsWith("http://") || url.startsWith("https://")) {
+        const display = url.length > 50 ? url.slice(0, 50) + "..." : url;
+        return `<a class="source-link mono" href="${url}" target="_blank">↗ ${display}</a>`;
+      }
+      if (url.startsWith("dataset://")) {
+        const filename = url.replace("dataset://", "");
+        return `<span class="source-link mono" style="color: var(--steel); text-decoration: none; cursor: default;" title="Retrieved locally from reference dataset ${filename}">📂 Dataset: ${filename}</span>`;
+      }
+      return `<span class="source-link mono" style="color: var(--steel);">${url}</span>`;
+    }
+
     function renderProduct(p) {
       let html = `<div class="product-title">${p.brand} <span class="brand">—</span> ${p.part_number}</div>`;
       html += `<div class="field-row">
@@ -735,7 +748,7 @@
       <div class="field-value">
         ${p.category.value ? p.category.value : '<span class="empty-val">not found</span>'}
         ${confidenceBadge(p.category.confidence)}
-        ${p.category.source_url ? `<a class="source-link mono" href="${p.category.source_url}" target="_blank">↗ ${p.category.source_url.length > 60 ? p.category.source_url.slice(0, 60) + '…' : p.category.source_url}</a>` : ""}
+        ${formatSourceUrl(p.category.source_url)}
       </div>
     </div>`;
       html += `<div class="field-row">
@@ -755,7 +768,7 @@
           ${attr.value}${attr.uom ? ' ' + attr.uom : ''}
           ${confidenceBadge(attr.confidence)}
           ${attr.agreeing_sources > 1 ? `<span class="badge med" data-tip="This many independent sources contained the same value.">${attr.agreeing_sources} sources agree</span>` : ""}
-          ${attr.source_url ? `<a class="source-link mono" href="${attr.source_url}" target="_blank">↗ ${attr.source_url.length > 60 ? attr.source_url.slice(0, 60) + '…' : attr.source_url}</a>` : ""}
+          ${formatSourceUrl(attr.source_url)}
         </div>
       </div>`;
         });

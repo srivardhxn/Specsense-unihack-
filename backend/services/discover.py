@@ -116,6 +116,20 @@ async def _web_search(product: ProductInput, max_results: int) -> list[SourceHit
     return []
 
 
+def _clean_url(url: str) -> str:
+    if not url:
+        return url
+    # Replace common URL unicode escapes if written as literal strings
+    url = url.replace(r'\u0026', '&').replace(r'\u003d', '=').replace(r'\u003f', '?').replace(r'\u002f', '/')
+    try:
+        # Standard unicode-escape decode for any remaining characters
+        import codecs
+        url = codecs.decode(url.encode(), 'unicode-escape').decode('utf-8')
+    except Exception:
+        pass
+    return url
+
+
 async def _try_search(query: str, max_results: int, brand: str) -> list[SourceHit]:
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
@@ -131,7 +145,7 @@ async def _try_search(query: str, max_results: int, brand: str) -> list[SourceHi
 
     results = []
     for item in data.get("organic_results", [])[:max_results * 2]:  # over-fetch since some get filtered out
-        url = item.get("link", "")
+        url = _clean_url(item.get("link", ""))
         if _is_excluded_source(url, brand):
             continue
         results.append(
