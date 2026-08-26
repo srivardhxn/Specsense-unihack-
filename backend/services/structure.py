@@ -106,7 +106,7 @@ def _call_gemini(user_prompt: str) -> dict:
     
     current_key = gemini_keys[gemini_key_idx % len(gemini_keys)]
     genai.configure(api_key=current_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    model = genai.GenerativeModel("gemini-3.5-flash")
     
     response = model.generate_content(
         user_prompt,
@@ -154,13 +154,14 @@ def _parse_json_loosely(raw: str) -> dict:
         raise
 
 
-def _call_llm_with_fallback(user_prompt: str, max_attempts: int = 2) -> dict:
+def _call_llm_with_fallback(user_prompt: str, max_attempts: int | None = None) -> dict:
     global gemini_key_idx, groq_key_idx
     last_error = None
     
     # Try Gemini with keys rotation
     if gemini_keys:
-        for attempt in range(max_attempts):
+        attempts = max_attempts if max_attempts is not None else len(gemini_keys)
+        for attempt in range(attempts):
             try:
                 res = _call_gemini(user_prompt)
                 gemini_key_idx += 1  # rotate to balance load
@@ -174,12 +175,15 @@ def _call_llm_with_fallback(user_prompt: str, max_attempts: int = 2) -> dict:
                 gemini_key_idx += 1
                 
                 if "PerDay" in msg:
-                    print("[structure] Gemini DAILY quota exhausted -- checking fallback.")
-                    break
-                if ("429" in msg or "quota" in msg.lower()) and attempt < max_attempts - 1:
-                    wait_seconds = 5 * (attempt + 1)
+                    print("[structure] Gemini DAILY quota exhausted for this key. Trying NEXT key...")
+                    continue
+                if ("429" in msg or "quota" in msg.lower()) and attempt < attempts - 1:
+                    wait_seconds = 2 * (attempt + 1)
                     print(f"[structure] Rate limited, waiting {wait_seconds}s before retry with NEXT key...")
                     time.sleep(wait_seconds)
+                    continue
+                if attempt < attempts - 1:
+                    print("[structure] Attempting fallback to NEXT Gemini key immediately...")
                     continue
                 break
     else:
@@ -187,7 +191,8 @@ def _call_llm_with_fallback(user_prompt: str, max_attempts: int = 2) -> dict:
 
     # Try Groq with keys rotation
     if groq_keys:
-        for attempt in range(max_attempts):
+        attempts = max_attempts if max_attempts is not None else len(groq_keys)
+        for attempt in range(attempts):
             try:
                 print(f"[structure] Falling back to Groq (Qwen 3.6) using key index {groq_key_idx % len(groq_keys)}...")
                 res = _call_groq(user_prompt)
