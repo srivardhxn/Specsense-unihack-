@@ -36,7 +36,7 @@ EXCLUDED_DOMAINS = [
 
 def _is_excluded_source(url: str, brand: str) -> bool:
     url_lower = url.lower()
-    if brand and brand.lower() == "siemens":
+    if brand and "siemens" in brand.lower():
         # For Siemens, bypass exclusions for datasheets/catalogs since their official site blocks scrapers
         marketplaces = ["amazon.", "ebay.", "walmart.", "aliexpress.", "alibaba."]
         return any(domain in url_lower for domain in marketplaces)

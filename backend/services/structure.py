@@ -214,7 +214,11 @@ def _extract_all_sources(product: ProductInput, sources: list[SourceHit]) -> dic
 
     source_blocks = []
     for i, s in enumerate(sources):
-        text = (s.raw_text or "")[:5000]
+        text = s.raw_text
+        if not text and s.snippet:
+            # Fall back to the search snippet if the web scraper was blocked or failed
+            text = f"[Web scrape failed - falling back to search snippet]: {s.snippet}"
+        text = (text or "")[:5000]
         source_blocks.append(f"--- SOURCE {i} ({s.origin}): {s.url} ---\n{text}")
     combined = "\n\n".join(source_blocks)
 
