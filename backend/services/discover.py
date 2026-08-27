@@ -12,6 +12,8 @@ Cloud project needed, fastest to set up for a hackathon.
 """
 import os
 import httpx
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, parse_qs, unquote
 from models import ProductInput, SourceHit
 from services.rag import rag_store
 
@@ -83,10 +85,6 @@ async def discover_sources(product: ProductInput, max_results: int = 3) -> list[
 
 
 async def _web_search(product: ProductInput, max_results: int) -> list[SourceHit]:
-    if not SERPAPI_KEY:
-        print("[discover] SERPAPI_KEY not set -- skipping live web search.")
-        return []
-
     brand_clean = (product.brand or "").strip()
     bad_brands = ["appliance dealers cooperative", "appde", "-- unbranded --", "-- no unilog brand --", "unknown", "-- no dib brand --"]
     if brand_clean.lower() in bad_brands:
@@ -131,31 +129,102 @@ def _clean_url(url: str) -> str:
 
 
 async def _try_search(query: str, max_results: int, brand: str) -> list[SourceHit]:
+    # 1. Try DuckDuckGo search first (free, unlimited, no API key needed)
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(
-                SERPAPI_URL,
-                params={"q": query, "api_key": SERPAPI_KEY, "num": max_results},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        print(f"[discover] attempting DuckDuckGo search for: '{query}'")
+        results = await _ddg_search(query, max_results, brand)
+        if results:
+            return results
     except Exception as e:
-        print(f"[discover] web search failed for query '{query}': {e}")
-        return []
+        print(f"[discover] DuckDuckGo search failed: {e}")
 
-    results = []
-    for item in data.get("organic_results", [])[:max_results * 2]:  # over-fetch since some get filtered out
-        url = _clean_url(item.get("link", ""))
-        if _is_excluded_source(url, brand):
-            continue
-        results.append(
-            SourceHit(
-                url=url,
-                title=item.get("title", ""),
-                snippet=item.get("snippet", ""),
-                origin="web",
-            )
-        )
-        if len(results) >= max_results:
-            break
-    return results
+    # 2. Fallback to SerpApi if key is present
+    if SERPAPI_KEY:
+        try:
+            print(f"[discover] attempting SerpAPI search for: '{query}'")
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(
+                    SERPAPI_URL,
+                    params={"q": query, "api_key": SERPAPI_KEY, "num": max_results},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                
+                results = []
+                for item in data.get("organic_results", [])[:max_results * 2]:
+                    url = _clean_url(item.get("link", ""))
+                    if _is_excluded_source(url, brand):
+                        continue
+                    results.append(
+                        SourceHit(
+                            url=url,
+                            title=item.get("title", ""),
+                            snippet=item.get("snippet", ""),
+                            origin="web",
+                        )
+                    )
+                    if len(results) >= max_results:
+                        break
+                return results
+        except Exception as e:
+            print(f"[discover] SerpAPI search fallback failed: {e}")
+
+    return []
+
+
+async def _ddg_search(query: str, max_results: int, brand: str) -> list[SourceHit]:
+    url = "https://html.duckduckgo.com/html/"
+    params = {"q": query}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        resp = await client.get(url, params=params, headers=headers)
+        if resp.status_code != 200:
+            resp = await client.post(url, data=params, headers=headers)
+            
+        if resp.status_code != 200:
+            print(f"[discover] DDG search returned status {resp.status_code}")
+            return []
+            
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = []
+        for result in soup.select(".result"):
+            title_el = result.select_one(".result__title")
+            link_el = result.select_one(".result__url")
+            snippet_el = result.select_one(".result__snippet")
+            
+            if title_el and link_el:
+                title = title_el.get_text(strip=True)
+                link = link_el.get_text(strip=True)
+                snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+                
+                a_el = title_el.select_one("a")
+                href = a_el["href"] if a_el and "href" in a_el.attrs else link
+                
+                # Extract clean url from redirect if needed
+                if "/l/?" in href:
+                    try:
+                        parsed = urlparse(href)
+                        qs = parse_qs(parsed.query)
+                        if "uddg" in qs:
+                            href = unquote(qs["uddg"][0])
+                    except Exception:
+                        pass
+                
+                url = _clean_url(href)
+                if _is_excluded_source(url, brand):
+                    continue
+                    
+                results.append(
+                    SourceHit(
+                        url=url,
+                        title=title,
+                        snippet=snippet,
+                        origin="web",
+                    )
+                )
+                if len(results) >= max_results:
+                    break
+        return results
