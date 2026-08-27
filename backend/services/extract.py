@@ -8,6 +8,8 @@ into clean text the LLM can reason over in Stage 3.
 """
 import httpx
 import io
+import re
+import json
 from bs4 import BeautifulSoup
 import pdfplumber
 from models import SourceHit
@@ -30,7 +32,11 @@ async def extract_text(source: SourceHit) -> SourceHit:
     try:
         async with httpx.AsyncClient(
             timeout=20.0, follow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 (SpecSense hackathon bot)"}
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
         ) as client:
             resp = await client.get(source.url)
             resp.raise_for_status()
@@ -49,12 +55,80 @@ async def extract_text(source: SourceHit) -> SourceHit:
     return source
 
 
+def _extract_json_objects(text: str) -> list[str]:
+    results = []
+    # Match pattern: "product": { or "product":{ or "product" : {
+    for match in re.finditer(r'"product"\s*:\s*\{', text):
+        start_idx = match.start()
+        brace_count = 0
+        end_idx = -1
+        for i in range(match.end() - 1, len(text)):
+            if text[i] == '{':
+                brace_count += 1
+            elif text[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    end_idx = i + 1
+                    break
+        if end_idx != -1:
+            results.append(text[start_idx:end_idx])
+    return results
+
+
 def _extract_html_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
+    extracted_data = []
+
+    # 1. Extract page title
+    if soup.title and soup.title.string:
+        extracted_data.append(f"Title: {soup.title.string.strip()}")
+
+    # 2. Extract meta descriptions and keywords
+    for meta in soup.find_all("meta"):
+        name = (meta.get("name") or meta.get("property") or "").lower()
+        content = meta.get("content")
+        if content and name in ["description", "keywords", "og:description", "og:title"]:
+            extracted_data.append(f"Meta {name}: {content.strip()}")
+
+    # 3. Extract JSON-LD script blocks
+    for s in soup.find_all("script", type="application/ld+json"):
+        if s.string:
+            extracted_data.append(f"JSON-LD Structured Data: {s.string.strip()}")
+
+    # 4. Extract custom embedded product JSON states from JavaScript blocks
+    for s in soup.find_all("script"):
+        # Skip JSON-LD script blocks since we already got them
+        if s.get("type") == "application/ld+json":
+            continue
+        content = s.string or ""
+        if len(content) > 1000 and "product" in content.lower():
+            try:
+                json_blocks = _extract_json_objects(content)
+                for block in json_blocks:
+                    # Validate and clean up
+                    wrapped = "{" + block + "}"
+                    try:
+                        parsed = json.loads(wrapped)
+                        # Pretty print it to make it readable for the LLM
+                        extracted_data.append(f"Product State JSON: {json.dumps(parsed)}")
+                    except Exception:
+                        # If validation fails, just append raw matched block
+                        extracted_data.append(f"Product State JSON Raw: {block}")
+            except Exception:
+                pass
+
+    # Now decompose scripts, styles, header, footer, nav to clean the body HTML
     for tag in soup(["script", "style", "nav", "footer", "header"]):
         tag.decompose()
-    text = soup.get_text(separator=" ", strip=True)
-    return text[:MAX_CHARS]
+
+    # Extract clean body text
+    body_text = soup.get_text(separator=" ", strip=True)
+    if body_text:
+        extracted_data.append(f"Body Text: {body_text}")
+
+    # Combine everything up to MAX_CHARS
+    full_text = "\n\n".join(extracted_data)
+    return full_text[:MAX_CHARS]
 
 
 def _extract_pdf_text(pdf_bytes: bytes) -> str:
@@ -69,3 +143,4 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
                 for row in table:
                     text_parts.append(" | ".join(c or "" for c in row))
     return "\n".join(text_parts)[:MAX_CHARS]
+
