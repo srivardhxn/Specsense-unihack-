@@ -33,13 +33,41 @@ EXCLUDED_DOMAINS = [
     "digikey.", "mouser.", "newark.", "farnell.", "zoro.", "homedepot.",
     "lowes.", "wayfair.", "target.", "bestbuy.", "globalindustrial.",
     "thomasnet.", "indiamart.", "made-in-china.",
+    "facebook.com", "instagram.com", "twitter.com", "x.com", "youtube.com",
+    "pinterest.com", "play.google.com", "apps.apple.com", "apps.microsoft.com",
 ]
 
 
 def _is_excluded_source(url: str, brand: str) -> bool:
     url_lower = url.lower()
-    if brand and "siemens" in brand.lower():
-        # For Siemens, bypass exclusions for datasheets/catalogs since their official site blocks scrapers
+    
+    # Filter out adult/inappropriate spam domains
+    adult_keywords = ["xhamster", "pornviden", "bokep", "porn", "xxx", "adult", "sex", "redtube", "pornhub", "xnxx", "xvideos"]
+    if any(kw in url_lower for kw in adult_keywords):
+        return True
+        
+    # Filter out homepages and generic non-product pages
+    if "wikipedia.org" in url_lower or "linkedin.com" in url_lower:
+        return True
+    try:
+        parsed = urlparse(url)
+        path = parsed.path.strip("/")
+        # If path is empty, it's a homepage
+        if not path:
+            return True
+        # If path is just a locale code (e.g. 'in', 'us', 'en', 'de', 'fr', 'en-us')
+        parts = [p for p in path.split("/") if p]
+        if len(parts) == 1 and (len(parts[0]) == 2 or (len(parts[0]) == 5 and parts[0][2] == "-")):
+            return True
+        # If it's a generic corporate page
+        generic_keywords = ["/career", "/job", "/about", "/login", "/register", "/contact", "/terms", "/privacy", "/press"]
+        if any(kw in url_lower for kw in generic_keywords):
+            return True
+    except Exception:
+        pass
+
+    if brand and ("siemens" in brand.lower() or "skf" in brand.lower()):
+        # For Siemens and SKF, bypass exclusions for datasheets/catalogs since their official site blocks scrapers
         marketplaces = ["amazon.", "ebay.", "walmart.", "aliexpress.", "alibaba."]
         return any(domain in url_lower for domain in marketplaces)
     return any(domain in url_lower for domain in EXCLUDED_DOMAINS)
@@ -84,6 +112,20 @@ async def discover_sources(product: ProductInput, max_results: int = 3) -> list[
     return rag_hits + web_hits
 
 
+def _score_source(url: str) -> float:
+    url_lower = url.lower()
+    score = 0.0
+    if url_lower.endswith(".pdf") or "pdf" in url_lower or "datasheet" in url_lower:
+        score += 10.0
+    product_keywords = ["/product/", "/products/", "/part/", "/parts/", "/bearing/", "/bearings/", "catalog", "specification", "spec"]
+    if any(kw in url_lower for kw in product_keywords):
+        score += 5.0
+    noise_keywords = ["hsn", "gst", "cleartax", "tax", "import", "export", "news", "forum", "blog", "wikipedia"]
+    if any(kw in url_lower for kw in noise_keywords):
+        score -= 8.0
+    return score
+
+
 async def _web_search(product: ProductInput, max_results: int) -> list[SourceHit]:
     brand_clean = (product.brand or "").strip()
     bad_brands = ["appliance dealers cooperative", "appde", "-- unbranded --", "-- no unilog brand --", "unknown", "-- no dib brand --"]
@@ -91,27 +133,63 @@ async def _web_search(product: ProductInput, max_results: int) -> list[SourceHit
         brand_clean = ""
 
     queries = []
+    pn_orig = product.part_number
+    pn_clean = pn_orig.replace(" ", "")
+    pn_norm = "".join(c for c in pn_orig if c.isalnum()).upper()
+
     if brand_clean:
-        queries.append(f"{brand_clean} {product.part_number} site:{_guess_manufacturer_domain(brand_clean)}" if _guess_manufacturer_domain(brand_clean) else None)
-        queries.append(f"{brand_clean} {product.part_number} datasheet specifications")
-        queries.append(f"{brand_clean} {product.part_number} {product.short_description}")
-        queries.append(f'"{product.part_number}" {brand_clean}')
+        queries.append(f'"{pn_orig}" {brand_clean}')
+        if pn_clean != pn_orig:
+            queries.append(f'"{pn_clean}" {brand_clean}')
+        queries.append(f'"{pn_clean}"')
+        if pn_norm != pn_clean:
+            queries.append(f'"{pn_norm}"')
+        queries.append(f"{pn_clean} datasheet specifications")
+        queries.append(f"{pn_clean} {brand_clean} datasheet specifications")
+        
+        blocks_scrapers = any(b in brand_clean.lower() for b in ["siemens", "skf", "schneider", "abb", "rockwell", "allen-bradley", "omron"])
+        mfr_domain = _guess_manufacturer_domain(brand_clean)
+        if mfr_domain and not blocks_scrapers:
+            queries.append(f"{brand_clean} {pn_clean} site:{mfr_domain}")
     else:
-        queries.append(f"{product.part_number} datasheet specifications")
-        queries.append(f"{product.part_number} {product.short_description}")
-        queries.append(f'"{product.part_number}"')
+        queries.append(f'"{pn_orig}"')
+        if pn_clean != pn_orig:
+            queries.append(f'"{pn_clean}"')
+        queries.append(f"{pn_clean} datasheet specifications")
+        queries.append(f"{pn_clean} {product.short_description}")
 
     queries = [q for q in queries if q]
 
-    for i, query in enumerate(queries):
+    all_results = []
+    seen_urls = set()
+    
+    # Always run the top 2 queries to combine results and get a diverse set of sources
+    queries_to_run = queries[:2] if len(queries) >= 2 else queries
+    for query in queries_to_run:
         results = await _try_search(query, max_results, brand_clean)
-        if results:
-            if i > 0:
-                print(f"[discover] first query found nothing, broader query #{i+1} succeeded: '{query}'")
-            return results
-
-    print(f"[discover] no results from any query variant for {product.brand} {product.part_number}")
-    return []
+        for r in results:
+            if r.url not in seen_urls:
+                seen_urls.add(r.url)
+                all_results.append(r)
+                
+    # If we have fewer than max_results, run subsequent queries
+    if len(all_results) < max_results:
+        for query in queries[2:]:
+            results = await _try_search(query, max_results - len(all_results), brand_clean)
+            for r in results:
+                if r.url not in seen_urls:
+                    seen_urls.add(r.url)
+                    all_results.append(r)
+            if len(all_results) >= max_results:
+                break
+                
+    if not all_results:
+        print(f"[discover] no results from any query variant for {product.brand} {product.part_number}")
+        return []
+        
+    # Rank discovered sources to prioritize high-quality pages (like specs/PDFs) and avoid noise
+    all_results.sort(key=lambda hit: _score_source(hit.url), reverse=True)
+    return all_results[:max_results]
 
 
 def _clean_url(url: str) -> str:
@@ -129,10 +207,13 @@ def _clean_url(url: str) -> str:
 
 
 async def _try_search(query: str, max_results: int, brand: str) -> list[SourceHit]:
+    # Always query for up to 10 results to get a larger candidate pool for ranking
+    search_limit = 10
+    
     # 1. Try DuckDuckGo search first (free, unlimited, no API key needed)
     try:
         print(f"[discover] attempting DuckDuckGo search for: '{query}'")
-        results = await _ddg_search(query, max_results, brand)
+        results = await _ddg_search(query, search_limit, brand)
         if results:
             return results
     except Exception as e:
@@ -145,31 +226,112 @@ async def _try_search(query: str, max_results: int, brand: str) -> list[SourceHi
             async with httpx.AsyncClient(timeout=8.0) as client:
                 resp = await client.get(
                     SERPAPI_URL,
-                    params={"q": query, "api_key": SERPAPI_KEY, "num": max_results},
+                    params={"q": query, "api_key": SERPAPI_KEY, "num": search_limit},
                 )
-                resp.raise_for_status()
-                data = resp.json()
-                
-                results = []
-                for item in data.get("organic_results", [])[:max_results * 2]:
-                    url = _clean_url(item.get("link", ""))
-                    if _is_excluded_source(url, brand):
-                        continue
-                    results.append(
-                        SourceHit(
-                            url=url,
-                            title=item.get("title", ""),
-                            snippet=item.get("snippet", ""),
-                            origin="web",
-                        )
-                    )
-                    if len(results) >= max_results:
-                        break
-                return results
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if "error" in data:
+                        print(f"[discover] SerpAPI error: {data['error']}")
+                    else:
+                        results = []
+                        for item in data.get("organic_results", [])[:search_limit * 2]:
+                            url = _clean_url(item.get("link", ""))
+                            if _is_excluded_source(url, brand):
+                                continue
+                            results.append(
+                                SourceHit(
+                                    url=url,
+                                    title=item.get("title", ""),
+                                    snippet=item.get("snippet", ""),
+                                    origin="web",
+                                )
+                            )
+                            if len(results) >= search_limit:
+                                break
+                        if results:
+                            return results
+                else:
+                    print(f"[discover] SerpAPI search returned status {resp.status_code}")
         except Exception as e:
             print(f"[discover] SerpAPI search fallback failed: {e}")
 
+    # 3. Fallback to Bing search (free, no API key needed, extremely robust)
+    try:
+        print(f"[discover] attempting Bing search for: '{query}'")
+        results = await _bing_search(query, search_limit, brand)
+        if results:
+            return results
+    except Exception as e:
+        print(f"[discover] Bing search failed: {e}")
+
     return []
+
+
+def _decode_bing_url(url: str) -> str:
+    if not url:
+        return url
+    if "bing.com/ck/a?!" in url:
+        try:
+            import base64
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            if "u" in qs:
+                u_val = qs["u"][0]
+                if len(u_val) > 2:
+                    encoded = u_val[2:]
+                    padding = len(encoded) % 4
+                    if padding:
+                        encoded += "=" * (4 - padding)
+                    decoded = base64.b64decode(encoded).decode("utf-8", errors="ignore")
+                    return decoded
+        except Exception:
+            pass
+    return url
+
+
+async def _bing_search(query: str, max_results: int, brand: str) -> list[SourceHit]:
+    url = "https://www.bing.com/search"
+    params = {"q": query}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(url, params=params, headers=headers)
+        if resp.status_code != 200:
+            print(f"[discover] Bing search returned status {resp.status_code}")
+            return []
+            
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = []
+        for item in soup.select("li.b_algo"):
+            a_el = item.select_one("h2 a")
+            snippet_el = item.select_one(".b_caption p") or item.select_one(".b_algoSlug")
+            
+            if a_el:
+                title = a_el.get_text(strip=True)
+                href = a_el.get("href", "")
+                snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+                
+                real_url = _decode_bing_url(href)
+                url = _clean_url(real_url)
+                if _is_excluded_source(url, brand):
+                    continue
+                    
+                results.append(
+                    SourceHit(
+                        url=url,
+                        title=title,
+                        snippet=snippet,
+                        origin="web",
+                    )
+                )
+                if len(results) >= max_results:
+                    break
+        return results
+
 
 
 async def _ddg_search(query: str, max_results: int, brand: str) -> list[SourceHit]:

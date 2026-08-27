@@ -84,9 +84,24 @@ async def _run_pipeline(product: ProductInput) -> StructuredProduct:
         print(f"[cache] hit for {product.brand} {product.part_number} -- no API calls made")
         return cached
 
-    sources = await discover_sources(product)
-    extracted_sources = [await extract_text(s) for s in sources]
-    result = await structure_product(product, extracted_sources)
+    # 1. Discover up to 6 candidate sources
+    sources = await discover_sources(product, max_results=6)
+    
+    # 2. Extract raw text from all sources concurrently
+    extracted = await asyncio.gather(*(extract_text(s) for s in sources))
+    
+    # 3. Filter out empty or blocked pages (keeping RAG sources)
+    valid_sources = []
+    for s in extracted:
+        if s.origin == "rag" or (s.raw_text and len(s.raw_text.strip()) >= 150):
+            valid_sources.append(s)
+        else:
+            print(f"[extract] discarding empty/blocked source: {s.url} (length: {len(s.raw_text or '')})")
+            
+    # 4. Use the top 3 valid sources for structuring
+    final_sources = valid_sources[:3]
+    
+    result = await structure_product(product, final_sources)
     review_store.save_product(result)
     cache.set(product.part_number, product.brand, result)
     return result

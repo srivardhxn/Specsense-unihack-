@@ -753,11 +753,19 @@
     </div>`;
       html += `<div class="field-row">
       <div class="field-name">Short Desc</div>
-      <div class="field-value">${p.short_desc.value || '<span class="empty-val">not found</span>'} ${confidenceBadge(p.short_desc.confidence)}</div>
+      <div class="field-value">
+        ${p.short_desc.value || '<span class="empty-val">not found</span>'}
+        ${confidenceBadge(p.short_desc.confidence)}
+        ${formatSourceUrl(p.short_desc.source_url)}
+      </div>
     </div>`;
       html += `<div class="field-row">
       <div class="field-name">Long Desc</div>
-      <div class="field-value">${p.long_desc.value || '<span class="empty-val">not found</span>'} ${confidenceBadge(p.long_desc.confidence)}</div>
+      <div class="field-value">
+        ${p.long_desc.value || '<span class="empty-val">not found</span>'}
+        ${confidenceBadge(p.long_desc.confidence)}
+        ${formatSourceUrl(p.long_desc.source_url)}
+      </div>
     </div>`;
 
       if (p.attributes && p.attributes.length) {

@@ -24,24 +24,27 @@ async def run_pipeline_for_product(part_number: str, brand: str, short_desc: str
     )
     print(f"\nProcessing: PN={part_number}, Brand={brand}...")
     
-    # 1. Discover
-    sources = await discover_sources(product)
-    print(f"  - Discovered {len(sources)} sources")
+    # 1. Discover up to 6 candidate sources
+    sources = await discover_sources(product, max_results=6)
+    print(f"  - Discovered {len(sources)} candidate sources")
     for s in sources:
         print(f"    * {s.origin}: {s.url}")
         
-    # 2. Extract
-    extracted_sources = []
-    for s in sources:
-        ext = await extract_text(s)
-        if ext.raw_text:
-            print(f"    * Extracted {len(ext.raw_text)} chars from {ext.url}")
+    # 2. Extract concurrently
+    extracted = await asyncio.gather(*(extract_text(s) for s in sources))
+    valid_sources = []
+    for s in extracted:
+        if s.origin == "rag" or (s.raw_text and len(s.raw_text.strip()) >= 150):
+            valid_sources.append(s)
+            print(f"    * Extracted {len(s.raw_text)} chars from {s.url}")
         else:
-            print(f"    * Extraction failed/empty for {ext.url}")
-        extracted_sources.append(ext)
+            print(f"    * Discarding empty/blocked source: {s.url}")
+            
+    final_sources = valid_sources[:3]
+    print(f"  - Using {len(final_sources)} valid sources for structuring")
             
     # 3. Structure & Score & Vocabulary Validation
-    result = await structure_product(product, extracted_sources)
+    result = await structure_product(product, final_sources)
     print(f"  - Category: {result.category.value} (Confidence: {result.category.confidence})")
     print(f"  - Brand matched approved list: {result.brand_vocab_validated} ({result.brand})")
     print(f"  - Attributes Extracted: {len(result.attributes)}")

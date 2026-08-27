@@ -135,8 +135,7 @@ def _call_groq(user_prompt: str) -> dict:
         model=GROQ_MODEL,
         messages=[{"role": "user", "content": user_prompt}],
         temperature=0,
-        max_tokens=2000,
-        response_format={"type": "json_object"},
+        max_tokens=4096,
         timeout=40.0,
         extra_body=extra_body
     )
@@ -144,14 +143,85 @@ def _call_groq(user_prompt: str) -> dict:
     return _parse_json_loosely(raw)
 
 
+def _close_truncated_json(s: str) -> str:
+    s = s.strip()
+    if s.endswith(","):
+        s = s[:-1].strip()
+        
+    stack = []
+    in_string = False
+    escape = False
+    
+    for ch in s:
+        if escape:
+            escape = False
+            continue
+        if ch == '\\':
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if not in_string:
+            if ch == '{':
+                stack.append('}')
+            elif ch == '[':
+                stack.append(']')
+            elif ch == '}':
+                if stack and stack[-1] == '}':
+                    stack.pop()
+            elif ch == ']':
+                if stack and stack[-1] == ']':
+                    stack.pop()
+                    
+    if in_string:
+        s += '"'
+        
+    while stack:
+        close_ch = stack.pop()
+        s = s.strip()
+        if s.endswith(","):
+            s = s[:-1].strip()
+        s += close_ch
+        
+    return s
+
+
 def _parse_json_loosely(raw: str) -> dict:
+    import re
+    cleaned = raw.strip()
+    
+    # 1. Strip think blocks
+    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
+    
+    # 2. Strip code blocks
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+    
+    # 3. Locate start of JSON object
+    start = cleaned.find("{")
+    if start != -1:
+        cleaned = cleaned[start:]
+        
+    # 4. Clean trailing commas in objects/arrays
+    cleaned = re.sub(r",\s*([\]\}])", r"\1", cleaned)
+    
     try:
-        return json.loads(raw)
+        return json.loads(cleaned)
     except json.JSONDecodeError:
-        start, end = raw.find("{"), raw.rfind("}")
-        if start != -1 and end != -1:
-            return json.loads(raw[start:end + 1])
-        raise
+        # 5. Try to repair truncated JSON
+        try:
+            repaired = _close_truncated_json(cleaned)
+            return json.loads(repaired)
+        except Exception as e2:
+            print(f"[structure] loose JSON parse and repair failed: {e2}")
+            print(f"--- RAW RESPONSE START ---\n{raw}\n--- RAW RESPONSE END ---")
+            raise
 
 
 def _call_llm_with_fallback(user_prompt: str, max_attempts: int | None = None) -> dict:
