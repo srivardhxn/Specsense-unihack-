@@ -15,6 +15,7 @@ from services.structure import structure_product
 from services.rag import rag_store
 from services import vocabulary
 from services.export import export_products_csv, HEADER
+from main import _run_pipeline
 
 async def run_pipeline_for_product(part_number: str, brand: str, short_desc: str) -> StructuredProduct:
     product = ProductInput(
@@ -23,34 +24,12 @@ async def run_pipeline_for_product(part_number: str, brand: str, short_desc: str
         short_description=short_desc
     )
     print(f"\nProcessing: PN={part_number}, Brand={brand}...")
-    
-    # 1. Discover up to 6 candidate sources
-    sources = await discover_sources(product, max_results=6)
-    print(f"  - Discovered {len(sources)} candidate sources")
-    for s in sources:
-        print(f"    * {s.origin}: {s.url}")
-        
-    # 2. Extract concurrently
-    extracted = await asyncio.gather(*(extract_text(s) for s in sources))
-    valid_sources = []
-    for s in extracted:
-        if s.origin == "rag" or (s.raw_text and len(s.raw_text.strip()) >= 150):
-            valid_sources.append(s)
-            print(f"    * Extracted {len(s.raw_text)} chars from {s.url}")
-        else:
-            print(f"    * Discarding empty/blocked source: {s.url}")
-            
-    final_sources = valid_sources[:3]
-    print(f"  - Using {len(final_sources)} valid sources for structuring")
-            
-    # 3. Structure & Score & Vocabulary Validation
-    result = await structure_product(product, final_sources)
+    result = await _run_pipeline(product)
     print(f"  - Category: {result.category.value} (Confidence: {result.category.confidence})")
     print(f"  - Brand matched approved list: {result.brand_vocab_validated} ({result.brand})")
     print(f"  - Attributes Extracted: {len(result.attributes)}")
     for attr in result.attributes[:5]:
-        print(f"    * {attr.label} = {attr.value} {attr.uom or ''} (vocab-validated: {attr.vocab_validated})")
-        
+        print(f"    * {attr.label} = {attr.value} {attr.uom or ''} (conf: {attr.confidence})")
     return result
 
 def clean_brand(e1_brand: str, part_manuf: str) -> str:

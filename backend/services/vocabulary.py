@@ -34,6 +34,7 @@ UOM file activates unit normalization even without the others.
 import os
 import csv
 import difflib
+import re
 
 REFERENCE_DIR = os.getenv("REFERENCE_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "reference_data"))
 
@@ -107,35 +108,117 @@ def normalize_brand(brand: str) -> tuple[str, bool]:
     inactive, returns the input unchanged with was_validated=False --
     never silently invents a "corrected" spelling.
     """
-    if not status["manufacturer_brand_active"] or not brand:
+    if not brand:
         return brand, False
 
+    clean_input = re.sub(r'\s*\([^)]*\)\s*$', '', str(brand).strip())
+    # Clean common placeholder prefixes
+    clean_input = re.sub(r'^--\s*|\s*--$', '', clean_input).strip()
+
+    if not status["manufacturer_brand_active"]:
+        return clean_input, False
+
+    # Check direct or case-insensitive match first
+    for mfr, b in _manufacturer_brands:
+        if b and (b.lower() == clean_input.lower() or b.lower() == brand.lower()):
+            return b, True
+        if mfr and (mfr.lower() == clean_input.lower() or mfr.lower() == brand.lower()):
+            return b if b else mfr, True
+
+    # Fuzzy match against approved brands
     candidates = [b for _, b in _manufacturer_brands if b]
-    matches = difflib.get_close_matches(brand, candidates, n=1, cutoff=0.85)
+    matches = difflib.get_close_matches(clean_input, candidates, n=1, cutoff=0.75)
     if matches:
         return matches[0], True
-    return brand, False
+
+    # Fuzzy match against manufacturers to find paired brand
+    mfr_candidates = [m for m, _ in _manufacturer_brands if m]
+    mfr_matches = difflib.get_close_matches(clean_input, mfr_candidates, n=1, cutoff=0.75)
+    if mfr_matches:
+        for m, b in _manufacturer_brands:
+            if m == mfr_matches[0] and b:
+                return b, True
+
+    return clean_input, False
 
 
 def normalize_uom(uom: str | None) -> tuple[str | None, bool]:
-    """Returns (approved_abbreviation, was_validated)."""
-    if not uom or not status["uom_active"]:
-        return uom, False
-    match = _uom_map.get(uom.strip().lower())
+    """Returns (approved_abbreviation, was_validated) adhering to Unilog UOM standards."""
+    if not uom:
+        return None, False
+    clean_u = uom.strip()
+    if not status["uom_active"]:
+        return clean_u, False
+    match = _uom_map.get(clean_u.lower())
     if match:
         return match, True
-    return uom, False
+    return clean_u, False
 
 
-def normalize_attribute_value(label: str, value: str) -> tuple[str, bool]:
-    """Returns (normalized_value, was_validated) against the Fittings LOV."""
-    if not status["lov_active"] or not label or not value:
-        return value, False
-    match = _lov_map.get(f"{label.lower()}::{value.lower()}")
-    if match:
-        return match, True
-    return value, False
+def normalize_attribute_value(label: str, value: str, uom: str | None = None) -> tuple[str, str | None, bool]:
+    """
+    Applies Decimal-to-Fraction conversion and LOV canonicalization.
+    Returns (normalized_value, normalized_uom, was_validated).
+    """
+    from services.decimal_fraction import convert_measurement_string
+
+    if not value:
+        return value, uom, False
+
+    clean_val = str(value).strip()
+    norm_uom, uom_valid = normalize_uom(uom)
+
+    # Convert imperial decimal dimensions to trade fractions
+    is_dimension = any(kw in label.lower() for kw in ["bore", "outside", "outer", "inside", "width", "height", "length", "depth", "thickness", "dimension", "size"])
+    if is_dimension or (norm_uom and norm_uom.lower() in ["in", "inch"]):
+        converted, did_conv = convert_measurement_string(clean_val, norm_uom)
+        if did_conv:
+            clean_val = converted
+
+    # Apply LOV normalization
+    lov_valid = False
+    if status["lov_active"] and label:
+        match = _lov_map.get(f"{label.lower()}::{clean_val.lower()}")
+        if match:
+            clean_val = match
+            lov_valid = True
+
+    return clean_val, norm_uom, (lov_valid or uom_valid)
+
+
+# Canonical Unilog Classpath Taxonomy mapping
+CLASSPATH_TAXONOMY = {
+    "dishwasher": "Appliances & Consumer Electronics > Kitchen Appliances > Built-In Dishwashers",
+    "refrigerator": "Appliances & Consumer Electronics > Kitchen Appliances > Refrigerators",
+    "bearing": "Bearings & Power Transmission > Bearings > Deep Groove Ball Bearings",
+    "ball bearing": "Bearings & Power Transmission > Bearings > Deep Groove Ball Bearings",
+    "roller bearing": "Bearings & Power Transmission > Bearings > Roller Bearings",
+    "sanding belt": "Abrasives & Cutting Tools > Abrasives > Sanding Belts",
+    "abrasive": "Abrasives & Cutting Tools > Abrasives > Discs & Sheets",
+    "disc": "Abrasives & Cutting Tools > Abrasives > Sanding Discs",
+    "coupling": "Pipe, Tubing & Hose > Pipe & Tube Fittings > Couplings",
+    "fitting": "Pipe, Tubing & Hose > Pipe & Tube Fittings > Industrial Fittings",
+    "valve": "Plumbing & Pumps > Valves > Control & Ball Valves",
+    "faucet": "Plumbing & Pumps > Faucets > Kitchen & Bath Sink Faucets",
+    "plc": "Electrical & Industrial Automation > Controls > PLCs & Automation",
+    "controller": "Electrical & Industrial Automation > Controls > Industrial Controllers",
+    "motor": "Motors & Power Equipment > Electric Motors > AC/DC Motors",
+    "pump": "Plumbing & Pumps > Pumps > Industrial Pumps",
+    "sensor": "Electrical & Industrial Automation > Sensors > Proximity & Photoelectric",
+    "circuit breaker": "Electrical & Industrial Automation > Distribution > Circuit Breakers",
+}
+
+
+def get_canonical_classpath(category: str | None, desc: str | None = None) -> str:
+    combined = f"{category or ''} {desc or ''}".lower()
+    for kw, cp in CLASSPATH_TAXONOMY.items():
+        if kw in combined:
+            return cp
+    if category and category.strip():
+        return f"Industrial Supplies > Equipment & Hardware > {category.strip()}"
+    return "Industrial Supplies > General Industrial Equipment"
 
 
 def is_any_active() -> bool:
     return any(status.values())
+

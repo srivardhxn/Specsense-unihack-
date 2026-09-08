@@ -13,13 +13,14 @@ import json
 from bs4 import BeautifulSoup
 import pdfplumber
 from models import SourceHit
+from services import cache
 
 MAX_CHARS = 20000  # raised from 8000 -- spec tables (dimensions, weight, certs) are often further into the document
 
 
 async def extract_text(source: SourceHit) -> SourceHit:
     """
-    Fetches the URL and extracts readable text.
+    Fetches the URL and extracts readable text with persistent caching.
     Mutates and returns the SourceHit with raw_text filled in.
     On any failure, raw_text stays None — the structuring stage
     is expected to handle missing sources gracefully rather than crash.
@@ -29,9 +30,20 @@ async def extract_text(source: SourceHit) -> SourceHit:
     if source.origin == "rag":
         return source
 
+    # Check persistent scrape cache
+    cached = cache.get_scrape(source.url)
+    if cached is not None:
+        title, text = cached
+        if text:
+            source.raw_text = text
+            if title and not source.title:
+                source.title = title
+            print(f"[extract] cache hit for {source.url} ({len(text)} chars)")
+            return source
+
     try:
         async with httpx.AsyncClient(
-            timeout=20.0, follow_redirects=True,
+            timeout=15.0, follow_redirects=True,
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
@@ -46,6 +58,9 @@ async def extract_text(source: SourceHit) -> SourceHit:
                 source.raw_text = _extract_pdf_text(resp.content)
             else:
                 source.raw_text = _extract_html_text(resp.text)
+
+            if source.raw_text:
+                cache.set_scrape(source.url, source.title, source.raw_text)
 
     except Exception as e:
         # Don't let one bad source kill the whole pipeline.

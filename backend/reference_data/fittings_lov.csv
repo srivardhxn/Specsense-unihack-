@@ -1,0 +1,54 @@
+Attribute_Label,Attribute_Value,Normalized_Value
+Fitting Type,coupling,Coupling
+Fitting Type,cplg,Coupling
+Fitting Type,elbow,Elbow
+Fitting Type,ell,Elbow
+Fitting Type,tee,Tee
+Fitting Type,nipple,Nipple
+Fitting Type,npl,Nipple
+Fitting Type,adapter,Adapter
+Fitting Type,bushing,Bushing
+Fitting Type,bshg,Bushing
+Fitting Type,union,Union
+Fitting Type,cap,Cap
+Fitting Type,plug,Plug
+Fitting Type,cross,Cross
+Fitting Type,flange,Flange
+Fitting Type,valve,Valve
+Material,brs,Brass
+Material,brass,Brass
+Material,sst,Stainless Steel 316
+Material,ss,Stainless Steel
+Material,stainless steel,Stainless Steel
+Material,carbon steel,Carbon Steel
+Material,cs,Carbon Steel
+Material,pvc,PVC
+Material,cpvc,CPVC
+Material,cast iron,Cast Iron
+Material,ci,Cast Iron
+Material,ductile iron,Ductile Iron
+Material,copper,Copper
+Material,aluminum,Aluminum
+Material,bronze,Bronze
+Connection Type,npt,NPT
+Connection Type,fnpt,Female NPT
+Connection Type,mnpt,Male NPT
+Connection Type,bspp,BSPP
+Connection Type,bspt,BSPT
+Connection Type,flanged,Flanged
+Connection Type,socket weld,Socket Weld
+Connection Type,butt weld,Butt Weld
+Pressure Class,150#,150 lb
+Pressure Class,300#,300 lb
+Pressure Class,600#,600 lb
+Pressure Class,150 lb,150 lb
+Pressure Class,300 lb,300 lb
+Pressure Class,3000#,3000 lb
+Mounting Type,leg,Leg Mounting
+Mounting Type,built-in,Built-In
+Mounting Type,din rail,DIN Rail Mount
+Mounting Type,panel,Panel Mount
+Finish,stainless steel,Stainless Steel
+Finish,chrome,Polished Chrome
+Finish,matte black,Matte Black
+Finish,brushed nickel,Brushed Nickel

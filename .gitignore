@@ -6,7 +6,12 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
+*.db
 
-# OS junk
+# OS junk & temporary files
 .DS_Store
 Thumbs.db
+~$*
+backend/scratch/
+deck_inspect.json
+extracted_slide_*.png

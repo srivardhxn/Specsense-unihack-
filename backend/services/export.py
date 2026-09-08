@@ -102,11 +102,12 @@ def product_to_row(p: StructuredProduct) -> dict:
     row["Part_Manuf"] = p.manufacturer or p.brand
 
     row["Class"] = p.category.value or ""
-    row["Classpath"] = p.category.value or ""
+    row["Classpath"] = (p.classpath.value if p.classpath and p.classpath.value else p.category.value) or ""
 
-    row["MOBILE_DESC"] = p.short_desc.value or ""
-    row["INVOICE_DESC"] = p.short_desc.value or ""
+    row["INVOICE_DESC"] = (p.invoice_desc.value if p.invoice_desc and p.invoice_desc.value else p.short_desc.value) or ""
+    row["MOBILE_DESC"] = (p.mobile_desc.value if p.mobile_desc and p.mobile_desc.value else p.short_desc.value) or ""
     row["SHORT_DESC"] = p.short_desc.value or ""
+    row["Product Name"] = p.short_desc.value or ""
     row["LONG_DESC1"] = p.long_desc.value or ""
     row["RETAIL_DESC"] = p.long_desc.value or ""
     row["MARKETING_DESCRIPTION"] = p.long_desc.value or ""

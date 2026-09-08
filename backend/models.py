@@ -59,8 +59,12 @@ class StructuredProduct(BaseModel):
     brand: str
     brand_vocab_validated: bool = False  # True if brand matched the approved manufacturer/brand list
     manufacturer: Optional[str] = None  # True manufacturer name extracted from web/RAG sources
-    category: FieldValue          # maps to Class / Classpath
-    short_desc: FieldValue        # maps to SHORT_DESC / MOBILE_DESC / INVOICE_DESC
+    category: FieldValue          # maps to Class
+    classpath: Optional[FieldValue] = None  # Full hierarchical taxonomy breadcrumbs
+    series: Optional[FieldValue] = None     # Series name (e.g. Professional Series, Cubitron II)
+    short_desc: FieldValue        # maps to SHORT_DESC / Product Title (Brand + Series + MPN + Category + Specs)
+    invoice_desc: Optional[FieldValue] = None  # <= 40 chars, ALL CAPS, abbreviated
+    mobile_desc: Optional[FieldValue] = None   # 60-80 chars (Manufacturer Brand, Category, Series, MPN)
     long_desc: FieldValue         # maps to LONG_DESC1 / RETAIL_DESC / MARKETING_DESCRIPTION
     attributes: List[Attribute] = Field(default_factory=list)  # maps to ATTRIBUTE_* columns
     sources_used: List[str] = Field(default_factory=list)      # maps to Ref URL 1-5
