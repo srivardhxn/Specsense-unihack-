@@ -108,6 +108,6 @@ This executes the pipeline against `datasets/unihack_sample_input.csv` and outpu
 ---
 
 ## 👥 Team SpecSense
-- **Srivardhan** (Team Lead)
-- **Aysha**
-
+- **Srivardhan Kosuru** 
+- **T Aysha Jannah**
+- **Ron Ittyavirah**
